@@ -3,7 +3,7 @@ from pydantic import BaseModel
 class URLBase(BaseModel):
     target_url: str
 
-class URL(URLBase):
+class URLInDB(URLBase):
     is_active: bool
     clicks: int
 
@@ -11,6 +11,6 @@ class URL(URLBase):
         # Enabling Object-Relational Mapping
         orm_mode = True
 
-class URLInfo(URL):
+class URLInfo(URLInDB):
     url: str
     admin_url: str
