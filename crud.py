@@ -22,3 +22,7 @@ def get_db_url_by_key(db: Session, url_key: str) -> models.URL | None:
         models.URL.is_active == True
     )
     return db.scalars(stmt).first()
+
+
+def get_db_url_by_id(db: Session, url_id: int) -> models.URL | None:
+    return db.get(models.URL, url_id)
