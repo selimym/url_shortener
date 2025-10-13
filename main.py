@@ -5,8 +5,7 @@ from sqlalchemy.orm import Session
 
 import models, schemas
 from database import engine
-from keygen import generate_random_key
-from crud import create_db_url
+from crud import create_db_url, get_db_url_by_key
 
 
 app = FastAPI()
@@ -44,12 +43,12 @@ def create_url(url: schemas.URLBase, db: Session = Depends(get_db)):
 
 
 @app.get("/{url_key}")
-def forward_to_target_url(url_key: str, request: Request, db: Session = Depends(get_db)):
-    db_url = (
-        db.query(models.URL)
-        .filter(models.URL.key == url_key, models.URL.is_active)
-        .first()
-    )
+def forward_to_target_url(
+        url_key: str,
+        request: Request,
+        db: Session = Depends(get_db)
+    ):
+    db_url = get_db_url_by_key(db=db, url_key=url_key)
     if db_url:
         return RedirectResponse(db_url.target_url)
     else:
