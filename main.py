@@ -50,6 +50,7 @@ def forward_to_target_url(
     ):
     db_url = get_db_url_by_key(db=db, url_key=url_key)
     if db_url:
+        #Redirect is not cached locally because we want the request to hit the db for analytics
         return RedirectResponse(db_url.target_url)
     else:
         raise_not_found(request)
