@@ -1,11 +1,12 @@
+import models, schemas, crud
+from database import engine
+from config import get_settings
+
 import validators
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-
-import models, schemas, crud
-from database import engine
-
+from starlette.datastructures import URL
 
 app = FastAPI()
 models.Base.metadata.create_all(bind=engine)
@@ -25,20 +26,26 @@ def raise_not_found(request):
     raise HTTPException(status_code=404, detail=message)
 
 
-@app.post("/url", response_model=schemas.URLInfo)
-def create_url(url: schemas.URLBase, db: Session = Depends(get_db)):
-    if not validators.url(url.target_url):
-        raise raise_bad_request("Your provided URL is not valid")
-
-    db_url = crud.create_db_url(db, url)
-    
+def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
+    base_url = URL(get_settings().base_url)
+    admin_endpoint = app.url_path_for(
+        "admin info", secret_key=db_url.secret_key
+    )
     return schemas.URLInfo(
         target_url=db_url.target_url,
         is_active=db_url.is_active,
         clicks=db_url.clicks,
-        url=db_url.key,
-        admin_url=db_url.secret_key
+        url=str(base_url.replace(path=db_url.key)),
+        admin_url=str(base_url.replace(path=admin_endpoint))
     )
+
+
+@app.post("/url", response_model=schemas.URLInfo)
+def create_url(url: schemas.URLBase, db: Session = Depends(get_db)):
+    if not validators.url(url.target_url):
+        raise raise_bad_request("Your provided URL is not valid")
+    db_url = crud.create_db_url(db, url)
+    return get_admin_info(db_url)
 
 
 @app.get("/{url_key}")
@@ -64,12 +71,6 @@ def get_url_info(
     secret_key: str, request: Request, db: Session = Depends(get_db)
 ):
     if db_url := crud.get_db_url_by_secret_key(db, secret_key=secret_key):
-        return schemas.URLInfo(
-        target_url=db_url.target_url,
-        is_active=db_url.is_active,
-        clicks=db_url.clicks,
-        url=db_url.key,
-        admin_url=db_url.secret_key
-    )
+        return get_admin_info(db_url)
     else:
         raise_not_found(request)
