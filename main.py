@@ -56,6 +56,7 @@ def forward_to_target_url(
     ):
     db_url = crud.get_db_url_by_key(db=db, url_key=url_key)
     if db_url:
+        crud.update_db_clicks(db=db, db_url=db_url)
         #Redirect is not cached locally because we want the request to hit the db for analytics
         return RedirectResponse(db_url.target_url)
     else:
@@ -72,5 +73,16 @@ def get_url_info(
 ):
     if db_url := crud.get_db_url_by_secret_key(db, secret_key=secret_key):
         return get_admin_info(db_url)
+    else:
+        raise_not_found(request)
+
+
+@app.delete("/admin/{secret_key}")
+def delete_url(
+    secret_key: str, request: Request, db: Session = Depends(get_db)
+):
+    if db_url := crud.deactivate_db_url(db, secret_key=secret_key):
+        message = f"Successfully deleted shortened URL for '{db_url.target_url}'"
+        return {"detail": message}
     else:
         raise_not_found(request)
