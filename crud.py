@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 
 def create_db_url(db: Session, url: schemas.URLBase) -> models.URL:
-    key = keygen.generate_random_key(6)
-    secret_key = keygen.generate_random_key(6)
+    key = keygen.generate_unique_random_key(db, size=6)
+    secret_key = f"{key}_{keygen.generate_random_key(size=8)}"
     db_url = models.URL(
         target_url=url.target_url, key=key, secret_key=secret_key
     )
