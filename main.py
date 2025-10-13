@@ -3,9 +3,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-import models, schemas
+import models, schemas, crud
 from database import engine
-from crud import create_db_url, get_db_url_by_key
 
 
 app = FastAPI()
@@ -31,7 +30,7 @@ def create_url(url: schemas.URLBase, db: Session = Depends(get_db)):
     if not validators.url(url.target_url):
         raise raise_bad_request("Your provided URL is not valid")
 
-    db_url = create_db_url(db, url)
+    db_url = crud.create_db_url(db, url)
     
     return schemas.URLInfo(
         target_url=db_url.target_url,
@@ -48,9 +47,29 @@ def forward_to_target_url(
         request: Request,
         db: Session = Depends(get_db)
     ):
-    db_url = get_db_url_by_key(db=db, url_key=url_key)
+    db_url = crud.get_db_url_by_key(db=db, url_key=url_key)
     if db_url:
         #Redirect is not cached locally because we want the request to hit the db for analytics
         return RedirectResponse(db_url.target_url)
+    else:
+        raise_not_found(request)
+
+
+@app.get(
+    "/admin/{secret_key}",
+    name="admin info",
+    response_model=schemas.URLInfo,
+)
+def get_url_info(
+    secret_key: str, request: Request, db: Session = Depends(get_db)
+):
+    if db_url := crud.get_db_url_by_secret_key(db, secret_key=secret_key):
+        return schemas.URLInfo(
+        target_url=db_url.target_url,
+        is_active=db_url.is_active,
+        clicks=db_url.clicks,
+        url=db_url.key,
+        admin_url=db_url.secret_key
+    )
     else:
         raise_not_found(request)

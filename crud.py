@@ -26,3 +26,11 @@ def get_db_url_by_key(db: Session, url_key: str) -> models.URL | None:
 
 def get_db_url_by_id(db: Session, url_id: int) -> models.URL | None:
     return db.get(models.URL, url_id)
+
+
+def get_db_url_by_secret_key(db: Session, secret_key: str) -> models.URL | None:
+    stmt = select(models.URL).where(
+        models.URL.secret_key == secret_key,
+        models.URL.is_active == True
+    )
+    return db.scalars(stmt).first()
