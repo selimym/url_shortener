@@ -1,9 +1,9 @@
-from contextlib import asynccontextmanager
-import models, schemas, crud
-from database import engine, AsyncSessionLocal
-from config import get_settings
+from . import models, schemas, crud
+from .database import engine, AsyncSessionLocal
+from .config import get_settings
 
 import validators
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession

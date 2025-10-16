@@ -1,4 +1,4 @@
-import keygen, models, schemas
+from . import keygen, models, schemas
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
