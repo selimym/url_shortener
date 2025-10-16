@@ -33,6 +33,11 @@ def raise_not_found(request):
     message = f"URL '{request.url}' doesn't exist"
     raise HTTPException(status_code=404, detail=message)
 
+@app.get("/")
+def read_root():
+    """Root endpoint - welcome message."""
+    return {"message": "Welcome to the URL shortener API"}
+
 def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
     base_url = URL(get_settings().base_url)
     admin_endpoint = app.url_path_for(
