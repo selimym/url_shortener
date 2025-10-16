@@ -4,7 +4,6 @@ omit =
     */tests/*
     */venv/*
     */__init__.py
-    */config.py
 
 [report]
 exclude_lines =
@@ -14,3 +13,5 @@ exclude_lines =
     raise NotImplementedError
     if __name__ == .__main__.:
     if TYPE_CHECKING:
+    @asynccontextmanager
+    async def lifespan
