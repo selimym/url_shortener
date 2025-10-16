@@ -165,3 +165,32 @@ async def test_create_url_no_protocol(client):
         json={"target_url": "example.com"}
     )
     assert response.status_code == 400
+
+@pytest.mark.asyncio
+async def test_root_endpoint(client):
+    """Test root endpoint returns welcome message."""
+    response = await client.get("/")
+    assert response.status_code == 200
+    # Add a root endpoint to main.py if you don't have one
+
+@pytest.mark.asyncio  
+async def test_multiple_urls_same_target(client):
+    """Test creating multiple shortened URLs for same target."""
+    target = "https://www.example.com"
+    
+    # Create first URL
+    response1 = await client.post("/url", json={"target_url": target})
+    key1 = response1.json()["url"].split("/")[-1]
+    
+    # Create second URL for same target
+    response2 = await client.post("/url", json={"target_url": target})
+    key2 = response2.json()["url"].split("/")[-1]
+    
+    # Keys should be different
+    assert key1 != key2
+    
+    # Both should forward to same target
+    resp1 = await client.get(f"/{key1}", follow_redirects=False)
+    resp2 = await client.get(f"/{key2}", follow_redirects=False)
+    assert resp1.headers["location"] == target
+    assert resp2.headers["location"] == target
