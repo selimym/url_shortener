@@ -1,16 +1,19 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 
 from config import get_settings
 
-engine = create_engine(
-    get_settings().db_url, connect_args={"check_same_thread": False}
+# For SQLite with async support, use aiosqlite
+# For PostgreSQL, use asyncpg
+engine = create_async_engine(
+    get_settings().db_url,
+    echo=True,
 )
 
-SessionLocal = sessionmaker(
-    autocommit=False, autoflush=False, bind=engine
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
 
-class Base(DeclarativeBase):
-    pass
+Base = declarative_base()
