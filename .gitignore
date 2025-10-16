@@ -1,4 +1,10 @@
-__pycache__
-venv
+__pycache__/
+venv/
+env/
 .env
-shortener.db
+*.db
+.coverage
+htmlcov/
+.pytest_cache/
+.vscode/
+*.log
