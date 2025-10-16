@@ -3,8 +3,8 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from typing import Callable
 
-from main import app, get_db
-from database import Base
+from shortener_app.main import app, get_db
+from shortener_app.database import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
