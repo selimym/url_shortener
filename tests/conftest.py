@@ -8,6 +8,7 @@ from shortener_app.database import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
+
 @pytest.fixture(scope="function")
 async def test_engine():
     """Create test database engine."""
@@ -21,6 +22,7 @@ async def test_engine():
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
+
 @pytest.fixture(scope="function")
 async def test_db(test_engine):
     """Provide test database session."""
@@ -30,6 +32,7 @@ async def test_db(test_engine):
         expire_on_commit=False
     )
     yield TestSessionLocal
+
 
 @pytest.fixture(scope="function")
 async def client(test_db):

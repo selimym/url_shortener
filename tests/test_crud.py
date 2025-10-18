@@ -15,6 +15,7 @@ async def test_create_db_url(test_db):
         assert len(db_url.key) == 6
         assert "_" in db_url.secret_key
 
+
 @pytest.mark.asyncio
 async def test_get_db_url_by_key(test_db):
     """Test retrieving URL by key."""
@@ -29,12 +30,14 @@ async def test_get_db_url_by_key(test_db):
         assert retrieved_url.key == created_url.key
         assert retrieved_url.target_url == "https://example.com"
 
+
 @pytest.mark.asyncio
 async def test_get_db_url_by_key_not_found(test_db):
     """Test retrieving non-existent URL returns None."""
     async with test_db() as db:
         result = await crud.get_db_url_by_key(db, "NOTEXIST")
         assert result is None
+
 
 @pytest.mark.asyncio
 async def test_get_db_url_by_id(test_db):
@@ -49,6 +52,7 @@ async def test_get_db_url_by_id(test_db):
         assert retrieved_url is not None
         assert retrieved_url.id == created_url.id
 
+
 @pytest.mark.asyncio
 async def test_get_db_url_by_secret_key(test_db):
     """Test retrieving URL by secret key."""
@@ -61,6 +65,7 @@ async def test_get_db_url_by_secret_key(test_db):
         retrieved_url = await crud.get_db_url_by_secret_key(db, created_url.secret_key)
         assert retrieved_url is not None
         assert retrieved_url.secret_key == created_url.secret_key
+
 
 @pytest.mark.asyncio
 async def test_update_db_clicks(test_db):
@@ -78,6 +83,7 @@ async def test_update_db_clicks(test_db):
         
         await crud.update_db_clicks(db, db_url)
         assert db_url.clicks == 2
+
 
 @pytest.mark.asyncio
 async def test_deactivate_db_url(test_db):
@@ -97,6 +103,7 @@ async def test_deactivate_db_url(test_db):
         # Verify it's not returned by normal queries
         result = await crud.get_db_url_by_key(db, created_url.key)
         assert result is None  # Inactive URLs aren't returned
+
 
 @pytest.mark.asyncio
 async def test_deactivate_nonexistent_url(test_db):
