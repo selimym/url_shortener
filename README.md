@@ -1,5 +1,8 @@
 # Functional Requirements
 
+A FastAPI-based URL shortener with async SQLAlchemy 2.0
+
+![Tests](https://github.com/selimym/url-shortener/workflows/Tests/badge.svg)
 
 ## Core Requirements
 
@@ -15,9 +18,82 @@
 - **Entry size:** ~500 bytes per record
 
 
-# Non-Functional Requirements
+## Project Structure
 
-- **High Availability:** The service should ensure that all URLs are accessible 24/7, with minimal downtime, so users can reliably reach their destinations.  
-- **Low Latency:** URL redirections should occur almost instantly (ideally under a few milliseconds) to provide a seamless experience.  
-- **High Durability:** Shortened URLs should persist over time, even across server failures, ensuring long-term accessibility.  
+```
 
+url-shortener/
+├── shortener_app/           \# Main application package
+│   ├── __init__.py
+│   ├── main.py             \# FastAPI app and routes
+│   ├── crud.py             \# Database operations
+│   ├── models.py           \# SQLAlchemy models
+│   ├── schemas.py          \# Pydantic schemas
+│   ├── database.py         \# Database configuration
+│   ├── config.py           \# Settings management
+│   └── keygen.py           \# Random key generation
+├── tests/                   \# Test suite
+│   ├── conftest.py         \# Test fixtures
+│   ├── test_urls.py        \# API endpoint tests
+│   ├── test_crud.py        \# CRUD operation tests
+│   └── test_keygen.py      \# Key generation tests
+├── .github/
+│   └── workflows/
+│       └── tests.yml       \# CI workflow
+├── .env.example            \# Example environment variables
+├── pytest.ini              \# Pytest configuration
+├── requirements.txt        \# Project dependencies
+└── README.md
+
+```
+
+## Quick Start
+
+```
+
+# Create virtual environment
+
+python -m venv venv
+source venv/bin/activate  \# On Windows: venv\Scripts\activate
+
+# Install dependencies
+
+pip install -r requirements.txt
+
+# Create .env file
+
+cp .env.example .env
+
+# Run the server
+
+uvicorn shortener_app.main:app --reload
+
+```
+
+Visit http://localhost:8000/docs for the interactive API documentation.
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Welcome message |
+| `/url` | POST | Create shortened URL |
+| `/{url_key}` | GET | Redirect to target URL |
+| `/admin/{secret_key}` | GET | View URL statistics |
+| `/admin/{secret_key}` | DELETE | Deactivate shortened URL |
+
+## Configuration
+
+Environment variables can be set in `.env` file:
+
+```
+
+ENV_NAME="Development"
+BASE_URL="http://localhost:8000"
+DB_URL="sqlite+aiosqlite:///./shortener.db"
+
+```
+
+## Contributing
+
+This is a learning project, but suggestions and feedback are welcome! Feel free to open an issue or submit a pull request.
