@@ -33,10 +33,12 @@ def raise_not_found(request):
     message = f"URL '{request.url}' doesn't exist"
     raise HTTPException(status_code=404, detail=message)
 
+
 @app.get("/")
 def read_root():
     """Root endpoint - welcome message."""
     return {"message": "Welcome to the URL shortener API"}
+
 
 def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
     base_url = URL(get_settings().base_url)
@@ -51,12 +53,14 @@ def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
         admin_url=str(base_url.replace(path=admin_endpoint))
     )
 
+
 @app.post("/url", response_model=schemas.URLInfo)
 async def create_url(url: schemas.URLBase, db: AsyncSession = Depends(get_db)):
     if not validators.url(url.target_url):
         raise_bad_request("Your provided URL is not valid")
     db_url = await crud.create_db_url(db, url)
     return get_admin_info(db_url)
+
 
 @app.get("/{url_key}")
 async def forward_to_target_url(
@@ -71,6 +75,7 @@ async def forward_to_target_url(
     else:
         raise_not_found(request)
 
+
 @app.get(
     "/admin/{secret_key}",
     name="admin info",
@@ -83,6 +88,7 @@ async def get_url_info(
         return get_admin_info(db_url)
     else:
         raise_not_found(request)
+
 
 @app.delete("/admin/{secret_key}")
 async def delete_url(
