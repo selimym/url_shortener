@@ -1,0 +1,27 @@
+# Docker Compose Override Example
+# Copy this to docker-compose.override.yml to customize your local setup
+# docker-compose.override.yml is gitignored and won't be committed
+
+version: '3.8'
+
+services:
+  postgres:
+    environment:
+      # Override with your preferred local credentials
+      POSTGRES_PASSWORD: my-secure-local-password
+    ports:
+      # Expose PostgreSQL on localhost for debugging (optional)
+      - "5432:5432"
+
+  redis:
+    ports:
+      # Expose Redis on localhost for debugging (optional)
+      - "6379:6379"
+
+  web:
+    environment:
+      # Override any settings for local development
+      RATE_LIMIT_ENABLED: "false"  # Disable rate limiting locally
+    volumes:
+      # Enable live code reloading (optional)
+      - ./shortener_app:/app/shortener_app

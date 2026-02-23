@@ -2,6 +2,10 @@ __pycache__/
 venv/
 env/
 .env
+.env.local
+.env.production
+.env.development
+docker-compose.override.yml
 *.db
 .coverage
 htmlcov/

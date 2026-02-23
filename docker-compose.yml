@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-urlshortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword123}
+      POSTGRES_DB: ${POSTGRES_DB:-urlshortener}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urlshortener"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app-network
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ENV_NAME: ${ENV_NAME:-Local}
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      DB_URL: postgresql+asyncpg://${POSTGRES_USER:-urlshortener}:${POSTGRES_PASSWORD:-devpassword123}@postgres:5432/${POSTGRES_DB:-urlshortener}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      USE_MIGRATIONS: ${USE_MIGRATIONS:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_CREATE: ${RATE_LIMIT_CREATE:-10}
+      RATE_LIMIT_READ: ${RATE_LIMIT_READ:-100}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+
+networks:
+  app-network:
+    driver: bridge
