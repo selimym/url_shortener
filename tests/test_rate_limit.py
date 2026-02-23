@@ -63,13 +63,8 @@ async def mock_redis_with_rate_limit():
 @pytest.fixture
 async def rate_limited_client(test_db, monkeypatch, mock_redis_with_rate_limit):
     """Client with Redis rate limiting enabled."""
-    async def mock_get_redis():
-        return mock_redis_with_rate_limit
+    app.state.redis = mock_redis_with_rate_limit
 
-    monkeypatch.setattr("shortener_app.infrastructure.redis_client.get_redis", mock_get_redis)
-    monkeypatch.setattr("shortener_app.infrastructure.rate_limiter.get_redis", mock_get_redis)
-
-    # Enable rate limiting
     from shortener_app.config import get_settings
     settings = get_settings()
     monkeypatch.setattr(settings, "rate_limit_enabled", True)
@@ -89,6 +84,7 @@ async def rate_limited_client(test_db, monkeypatch, mock_redis_with_rate_limit):
         yield ac
 
     app.dependency_overrides.clear()
+    del app.state.redis
 
 
 @pytest.mark.asyncio
@@ -154,16 +150,9 @@ async def test_rate_limit_returns_429(rate_limited_client):
 @pytest.mark.asyncio
 async def test_rate_limit_disabled(test_db, monkeypatch):
     """Test that rate limiting can be disabled via config."""
-    # Mock Redis
     mock_redis = AsyncMock()
+    app.state.redis = mock_redis
 
-    async def mock_get_redis():
-        return mock_redis
-
-    monkeypatch.setattr("shortener_app.infrastructure.redis_client.get_redis", mock_get_redis)
-    monkeypatch.setattr("shortener_app.infrastructure.rate_limiter.get_redis", mock_get_redis)
-
-    # Disable rate limiting
     from shortener_app.config import get_settings
     settings = get_settings()
     monkeypatch.setattr(settings, "rate_limit_enabled", False)
@@ -187,6 +176,7 @@ async def test_rate_limit_disabled(test_db, monkeypatch):
             assert response.status_code == 200
 
     app.dependency_overrides.clear()
+    del app.state.redis
 
 
 @pytest.mark.asyncio
@@ -212,13 +202,8 @@ async def test_rate_limit_per_client(test_db, monkeypatch):
     mock_redis.setex.side_effect = mock_setex
     mock_redis.incr.side_effect = mock_incr
 
-    async def mock_get_redis():
-        return mock_redis
+    app.state.redis = mock_redis
 
-    monkeypatch.setattr("shortener_app.infrastructure.redis_client.get_redis", mock_get_redis)
-    monkeypatch.setattr("shortener_app.infrastructure.rate_limiter.get_redis", mock_get_redis)
-
-    # Enable rate limiting
     from shortener_app.config import get_settings
     settings = get_settings()
     monkeypatch.setattr(settings, "rate_limit_enabled", True)
@@ -229,15 +214,16 @@ async def test_rate_limit_per_client(test_db, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # Verify that different keys are created for the rate limiter
-    # (This tests that the rate limiter uses client IP + path in the key)
+    # Verify that keys are created for the rate limiter (IP + path format)
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test"
     ) as client:
         await client.post("/url", json={"target_url": "https://example.com"})
 
-    # Check that a key was created
+    # Key format is now "rate_limit:{ip}:{path}" — human-readable, no MD5
     assert len(request_counts) > 0
+    assert any(k.startswith("rate_limit:") for k in request_counts)
 
     app.dependency_overrides.clear()
+    del app.state.redis

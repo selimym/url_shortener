@@ -2,7 +2,7 @@ from shortener_app import models, schemas
 from shortener_app.database import engine, AsyncSessionLocal
 from shortener_app.config import get_settings
 from shortener_app.services import URLService
-from shortener_app.infrastructure import RateLimiter, close_redis
+from shortener_app.infrastructure import RateLimiter, create_redis_client
 
 import re
 import validators
@@ -30,15 +30,17 @@ def _validate_secret_key(key: str):
         raise HTTPException(status_code=404, detail="URL not found")
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     # Auto-create tables only in test mode (when not using migrations)
     if not get_settings().use_migrations:
         async with engine.begin() as conn:
             await conn.run_sync(models.Base.metadata.create_all)
 
+    app.state.redis = await create_redis_client()
+
     yield
 
-    await close_redis()
+    await app.state.redis.close()
     await engine.dispose()
 
 app = FastAPI(lifespan=lifespan)

@@ -36,19 +36,16 @@ async def test_db(test_engine):
 
 
 @pytest.fixture(scope="function")
-async def client(test_db, monkeypatch):
+async def client(test_db):
     """Provide test client with overridden dependencies."""
-    # Mock Redis to avoid external dependency
+    # httpx's ASGITransport (>=0.24) does not run the FastAPI lifespan, so set
+    # app.state.redis directly. In production the lifespan handles this.
     mock_redis = AsyncMock()
     mock_redis.get.return_value = None
     mock_redis.setex.return_value = True
     mock_redis.incr.return_value = 1
 
-    async def mock_get_redis():
-        return mock_redis
-
-    monkeypatch.setattr("shortener_app.infrastructure.redis_client.get_redis", mock_get_redis)
-    monkeypatch.setattr("shortener_app.infrastructure.rate_limiter.get_redis", mock_get_redis)
+    app.state.redis = mock_redis
 
     async def override_get_db():
         async with test_db() as session:
@@ -63,3 +60,4 @@ async def client(test_db, monkeypatch):
         yield ac
 
     app.dependency_overrides.clear()
+    del app.state.redis
