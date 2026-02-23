@@ -1,19 +1,30 @@
 from . import keygen, models, schemas
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 
 
-async def create_db_url(db: AsyncSession, url: schemas.URLBase) -> models.URL:
-    key = await keygen.generate_unique_random_key(db, size=6)
-    secret_key = f"{key}_{keygen.generate_random_key(size=8)}"
-    db_url = models.URL(
-        target_url=url.target_url, key=key, secret_key=secret_key
-    )
-    db.add(db_url)
-    await db.commit()
-    await db.refresh(db_url)
-    return db_url
+async def create_db_url(db: AsyncSession, url: schemas.URLBase, max_retries: int = 5) -> models.URL:
+    for attempt in range(max_retries):
+        try:
+            # Generate key without database check (remove TOCTOU)
+            key = keygen.generate_random_key(size=6)
+            secret_key = f"{key}_{keygen.generate_random_key(size=8)}"
+            db_url = models.URL(
+                target_url=url.target_url, key=key, secret_key=secret_key
+            )
+            db.add(db_url)
+            await db.commit()
+            await db.refresh(db_url)
+            return db_url
+        except IntegrityError:
+            await db.rollback()
+            if attempt == max_retries - 1:
+                raise ValueError("Failed to generate unique key after multiple attempts")
+            await asyncio.sleep(0.01 * (2 ** attempt))  # Exponential backoff
+    raise RuntimeError("Failed to generate unique key")
 
 
 async def get_db_url_by_key(db: AsyncSession, url_key: str) -> models.URL | None:
@@ -48,7 +59,12 @@ async def deactivate_db_url(db: AsyncSession, secret_key: str) -> models.URL | N
 
 
 async def update_db_clicks(db: AsyncSession, db_url: models.URL) -> models.URL:
-    db_url.clicks += 1
+    stmt = (
+        update(models.URL)
+        .where(models.URL.id == db_url.id)
+        .values(clicks=models.URL.clicks + 1)
+        .returning(models.URL)
+    )
+    result = await db.execute(stmt)
     await db.commit()
-    await db.refresh(db_url)
-    return db_url
+    return result.scalar_one()
