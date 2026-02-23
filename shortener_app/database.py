@@ -8,7 +8,7 @@ from shortener_app.config import get_settings
 # For PostgreSQL, use asyncpg
 engine = create_async_engine(
     get_settings().db_url,
-    echo=True,
+    echo=get_settings().env_name == "Local",
 )
 
 AsyncSessionLocal: Callable[[], AsyncSession] = async_sessionmaker(

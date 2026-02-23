@@ -2,8 +2,9 @@ from shortener_app import models, schemas
 from shortener_app.database import engine, AsyncSessionLocal
 from shortener_app.config import get_settings
 from shortener_app.services import URLService
-from shortener_app.infrastructure import RateLimiter, close_redis
+from shortener_app.infrastructure import RateLimiter, create_redis_client
 
+import re
 import validators
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -11,16 +12,35 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import URL
 
+# Whitelists matching the keygen output: url keys are [A-Z0-9]{6},
+# secret keys are [A-Z0-9]{6}_[A-Z0-9]{8}. Ranges here allow for
+# non-existent key lookups (e.g. NOTEXIST) while blocking path traversal,
+# XSS, SQL injection, and other injection patterns.
+_URL_KEY_RE = re.compile(r'^[A-Z0-9]{1,20}$')
+_SECRET_KEY_RE = re.compile(r'^[A-Z0-9_]{1,50}$')
+
+
+def _validate_url_key(key: str):
+    if not _URL_KEY_RE.match(key):
+        raise HTTPException(status_code=404, detail="URL not found")
+
+
+def _validate_secret_key(key: str):
+    if not _SECRET_KEY_RE.match(key):
+        raise HTTPException(status_code=404, detail="URL not found")
+
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(app: FastAPI):
     # Auto-create tables only in test mode (when not using migrations)
     if not get_settings().use_migrations:
         async with engine.begin() as conn:
             await conn.run_sync(models.Base.metadata.create_all)
 
+    app.state.redis = await create_redis_client()
+
     yield
 
-    await close_redis()
+    await app.state.redis.close()
     await engine.dispose()
 
 app = FastAPI(lifespan=lifespan)
@@ -79,6 +99,7 @@ async def forward_to_target_url(
         request: Request,
         service: URLService = Depends(get_url_service)
     ):
+    _validate_url_key(url_key)
     await read_rate_limiter.check_rate_limit(request)
     db_url = await service.get_by_key_with_lock(url_key)
     if db_url:
@@ -96,6 +117,7 @@ async def forward_to_target_url(
 async def get_url_info(
     secret_key: str, request: Request, service: URLService = Depends(get_url_service)
 ):
+    _validate_secret_key(secret_key)
     if db_url := await service.get_by_secret_key(secret_key):
         return get_admin_info(db_url)
     else:
@@ -106,6 +128,7 @@ async def get_url_info(
 async def delete_url(
     secret_key: str, request: Request, service: URLService = Depends(get_url_service)
 ):
+    _validate_secret_key(secret_key)
     if db_url := await service.deactivate(secret_key):
         message = f"Successfully deleted shortened URL for '{db_url.target_url}'"
         return {"detail": message}

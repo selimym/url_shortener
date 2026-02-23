@@ -1,7 +1,6 @@
 from fastapi import HTTPException, Request
-from shortener_app.infrastructure.redis_client import get_redis
 from shortener_app.config import get_settings
-import hashlib
+
 
 class RateLimiter:
     def __init__(self, max_requests: int, window_seconds: int = 60):
@@ -12,9 +11,10 @@ class RateLimiter:
         if not get_settings().rate_limit_enabled:
             return
 
-        redis = await get_redis()
-        identifier = f"{request.client.host}:{request.url.path}"
-        key = f"rate_limit:{hashlib.md5(identifier.encode()).hexdigest()}"
+        # IP-based limiting: without auth, the client's IP is the only available identifier.
+        # Users behind the same NAT share one bucket — acceptable trade-off for a public API.
+        redis = request.app.state.redis
+        key = f"rate_limit:{request.client.host}:{request.url.path}"
 
         current = await redis.get(key)
         if current is None:
