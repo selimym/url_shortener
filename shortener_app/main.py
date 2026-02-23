@@ -12,13 +12,13 @@ from starlette.datastructures import URL
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Startup: Create database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
-    
-    yield  # Application runs here
-    
-    # Shutdown: Clean up resources (optional)
+    # Auto-create tables only in test mode (when not using migrations)
+    if not get_settings().use_migrations:
+        async with engine.begin() as conn:
+            await conn.run_sync(models.Base.metadata.create_all)
+
+    yield
+
     await engine.dispose()
 
 app = FastAPI(lifespan=lifespan)
