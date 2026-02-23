@@ -1,15 +1,13 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 class URLBase(BaseModel):
     target_url: str
 
 class URLInDB(URLBase):
+    model_config = ConfigDict(from_attributes=True)
+
     is_active: bool
     clicks: int
-
-    class Config:
-        # Enabling Object-Relational Mapping
-        orm_mode = True
 
 class URLInfo(URLInDB):
     url: str

@@ -6,6 +6,7 @@ import validators
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import URL
 
@@ -68,7 +69,14 @@ async def forward_to_target_url(
         request: Request,
         db: AsyncSession = Depends(get_db)
     ):
-    db_url = await crud.get_db_url_by_key(db=db, url_key=url_key)
+    # Lock the row during read to prevent concurrent modifications
+    stmt = select(models.URL).where(
+        models.URL.key == url_key,
+        models.URL.is_active == True
+    ).with_for_update()
+    result = await db.execute(stmt)
+    db_url = result.scalars().first()
+
     if db_url:
         await crud.update_db_clicks(db=db, db_url=db_url)
         return RedirectResponse(db_url.target_url)

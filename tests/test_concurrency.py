@@ -115,22 +115,20 @@ async def test_concurrent_url_creation_unique_keys(client):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_key_generation_no_collision(test_db):
+async def test_concurrent_key_generation_no_collision(client):
     """Test key generation under high concurrency doesn't create duplicates."""
-    from shortener_app import keygen
-    
-    async with test_db() as db:
-        # Generate many keys concurrently
-        num_keys = 100
-        tasks = [
-            keygen.generate_unique_random_key(db, size=6)
-            for _ in range(num_keys)
-        ]
-        
-        keys = await asyncio.gather(*tasks)
-        
-        # All should be unique
-        assert len(keys) == len(set(keys)), "Duplicate keys generated during concurrent creation"
+    num_urls = 100
+    tasks = [
+        client.post("/url", json={"target_url": f"https://example{i}.com"})
+        for i in range(num_urls)
+    ]
+
+    responses = await asyncio.gather(*tasks)
+
+    keys = [response.json()["url"].split("/")[-1] for response in responses]
+
+    assert len(keys) == len(set(keys)), "Duplicate keys generated during concurrent creation"
+    assert len(keys) == num_urls, f"Expected {num_urls} URLs, got {len(keys)}"
 
 
 @pytest.mark.asyncio
