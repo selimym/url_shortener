@@ -1,12 +1,12 @@
-from . import models, schemas, crud
+from . import models, schemas
 from .database import engine, AsyncSessionLocal
 from .config import get_settings
+from .services import URLService
 
 import validators
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import URL
 
@@ -26,6 +26,9 @@ app = FastAPI(lifespan=lifespan)
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
+
+def get_url_service(db: AsyncSession = Depends(get_db)) -> URLService:
+    return URLService(db)
 
 def raise_bad_request(message):
     raise HTTPException(status_code=400, detail=message)
@@ -56,10 +59,10 @@ def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
 
 
 @app.post("/url", response_model=schemas.URLInfo)
-async def create_url(url: schemas.URLBase, db: AsyncSession = Depends(get_db)):
+async def create_url(url: schemas.URLBase, service: URLService = Depends(get_url_service)):
     if not validators.url(url.target_url):
         raise_bad_request("Your provided URL is not valid")
-    db_url = await crud.create_db_url(db, url)
+    db_url = await service.create(target_url=url.target_url)
     return get_admin_info(db_url)
 
 
@@ -67,18 +70,11 @@ async def create_url(url: schemas.URLBase, db: AsyncSession = Depends(get_db)):
 async def forward_to_target_url(
         url_key: str,
         request: Request,
-        db: AsyncSession = Depends(get_db)
+        service: URLService = Depends(get_url_service)
     ):
-    # Lock the row during read to prevent concurrent modifications
-    stmt = select(models.URL).where(
-        models.URL.key == url_key,
-        models.URL.is_active == True
-    ).with_for_update()
-    result = await db.execute(stmt)
-    db_url = result.scalars().first()
-
+    db_url = await service.get_by_key_with_lock(url_key)
     if db_url:
-        await crud.update_db_clicks(db=db, db_url=db_url)
+        await service.increment_clicks(db_url.id)
         return RedirectResponse(db_url.target_url)
     else:
         raise_not_found(request)
@@ -90,9 +86,9 @@ async def forward_to_target_url(
     response_model=schemas.URLInfo,
 )
 async def get_url_info(
-    secret_key: str, request: Request, db: AsyncSession = Depends(get_db)
+    secret_key: str, request: Request, service: URLService = Depends(get_url_service)
 ):
-    if db_url := await crud.get_db_url_by_secret_key(db, secret_key=secret_key):
+    if db_url := await service.get_by_secret_key(secret_key):
         return get_admin_info(db_url)
     else:
         raise_not_found(request)
@@ -100,9 +96,9 @@ async def get_url_info(
 
 @app.delete("/admin/{secret_key}")
 async def delete_url(
-    secret_key: str, request: Request, db: AsyncSession = Depends(get_db)
+    secret_key: str, request: Request, service: URLService = Depends(get_url_service)
 ):
-    if db_url := await crud.deactivate_db_url(db, secret_key=secret_key):
+    if db_url := await service.deactivate(secret_key):
         message = f"Successfully deleted shortened URL for '{db_url.target_url}'"
         return {"detail": message}
     else:

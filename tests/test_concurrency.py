@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 from httpx import AsyncClient
+from shortener_app import models
 
 @pytest.mark.asyncio
 async def test_concurrent_clicks_race_condition(client):
@@ -207,15 +208,15 @@ async def test_many_sequential_requests_no_memory_leak(client):
 @pytest.mark.asyncio
 async def test_database_connection_cleanup(test_db):
     """Test that database sessions are properly closed."""
-    from shortener_app import crud, schemas
-    
+    from shortener_app.services import URLService
+
     # Create many sessions and operations
     for i in range(50):
         async with test_db() as db:
-            url_data = schemas.URLBase(target_url=f"https://example{i}.com")
-            await crud.create_db_url(db, url_data)
-    
+            service = URLService(db)
+            await service.create(f"https://example{i}.com")
+
     # If connections leak, this will exhaust the pool
     async with test_db() as db:
-        result = await crud.get_db_url_by_id(db, 1)
+        result = await db.get(models.URL, 1)
         assert result is not None
