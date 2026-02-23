@@ -1,7 +1,8 @@
-from . import models, schemas
-from .database import engine, AsyncSessionLocal
-from .config import get_settings
-from .services import URLService
+from shortener_app import models, schemas
+from shortener_app.database import engine, AsyncSessionLocal
+from shortener_app.config import get_settings
+from shortener_app.services import URLService
+from shortener_app.infrastructure import RateLimiter, close_redis
 
 import validators
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ async def lifespan(_: FastAPI):
 
     yield
 
+    await close_redis()
     await engine.dispose()
 
 app = FastAPI(lifespan=lifespan)
@@ -29,6 +31,10 @@ async def get_db():
 
 def get_url_service(db: AsyncSession = Depends(get_db)) -> URLService:
     return URLService(db)
+
+# Rate limiters
+create_rate_limiter = RateLimiter(max_requests=get_settings().rate_limit_create)
+read_rate_limiter = RateLimiter(max_requests=get_settings().rate_limit_read)
 
 def raise_bad_request(message):
     raise HTTPException(status_code=400, detail=message)
@@ -59,7 +65,8 @@ def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
 
 
 @app.post("/url", response_model=schemas.URLInfo)
-async def create_url(url: schemas.URLBase, service: URLService = Depends(get_url_service)):
+async def create_url(request: Request, url: schemas.URLBase, service: URLService = Depends(get_url_service)):
+    await create_rate_limiter.check_rate_limit(request)
     if not validators.url(url.target_url):
         raise_bad_request("Your provided URL is not valid")
     db_url = await service.create(target_url=url.target_url)
@@ -72,6 +79,7 @@ async def forward_to_target_url(
         request: Request,
         service: URLService = Depends(get_url_service)
     ):
+    await read_rate_limiter.check_rate_limit(request)
     db_url = await service.get_by_key_with_lock(url_key)
     if db_url:
         await service.increment_clicks(db_url.id)
