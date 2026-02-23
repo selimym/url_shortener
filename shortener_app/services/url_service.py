@@ -5,7 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .. import keygen, models
+from shortener_app import keygen, models
 
 
 class URLService:
