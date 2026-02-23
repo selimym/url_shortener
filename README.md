@@ -1,4 +1,4 @@
-# Functional Requirements
+# URL Shortener
 
 A FastAPI-based URL shortener with async SQLAlchemy 2.0
 
@@ -21,56 +21,40 @@ A FastAPI-based URL shortener with async SQLAlchemy 2.0
 ## Project Structure
 
 ```
-
 url-shortener/
-├── shortener_app/           \# Main application package
-│   ├── __init__.py
-│   ├── main.py             \# FastAPI app and routes
-│   ├── crud.py             \# Database operations
-│   ├── models.py           \# SQLAlchemy models
-│   ├── schemas.py          \# Pydantic schemas
-│   ├── database.py         \# Database configuration
-│   ├── config.py           \# Settings management
-│   └── keygen.py           \# Random key generation
-├── tests/                   \# Test suite
-│   ├── conftest.py         \# Test fixtures
-│   ├── test_urls.py        \# API endpoint tests
-│   ├── test_crud.py        \# CRUD operation tests
-│   └── test_keygen.py      \# Key generation tests
-├── .github/
-│   └── workflows/
-│       └── tests.yml       \# CI workflow
-├── .env.example            \# Example environment variables
-├── pytest.ini              \# Pytest configuration
-├── requirements.txt        \# Project dependencies
-└── README.md
-
+├── shortener_app/
+│   ├── main.py              # FastAPI routes and dependency injection
+│   ├── models.py            # SQLAlchemy models
+│   ├── schemas.py           # Pydantic validation
+│   ├── database.py          # Async database setup
+│   ├── config.py            # Settings (Pydantic V2)
+│   ├── keygen.py            # Random key generation
+│   └── services/
+│       └── url_service.py   # Business logic + data access
+├── tests/
+│   ├── conftest.py          # Test fixtures
+│   ├── test_urls.py         # API endpoint tests
+│   ├── test_service.py      # Service layer tests
+│   ├── test_concurrency.py  # Race condition tests
+│   ├── test_keygen.py       # Key generation tests
+│   └── test_security.py     # Security tests
+├── requirements.txt
+└── pytest.ini
 ```
 
 ## Quick Start
 
-```
-
-# Create virtual environment
-
+```bash
+# Setup
 python -m venv venv
-source venv/bin/activate  \# On Windows: venv\Scripts\activate
-
-# Install dependencies
-
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Create .env file
-
-cp .env.example .env
-
-# Run the server
-
+# Run server
 uvicorn shortener_app.main:app --reload
-
 ```
 
-Visit http://localhost:8000/docs for the interactive API documentation.
+Visit http://localhost:8000/docs for interactive API docs.
 
 ## API Endpoints
 
@@ -78,22 +62,29 @@ Visit http://localhost:8000/docs for the interactive API documentation.
 |----------|--------|-------------|
 | `/` | GET | Welcome message |
 | `/url` | POST | Create shortened URL |
-| `/{url_key}` | GET | Redirect to target URL |
+| `/{url_key}` | GET | Redirect to target URL (increments clicks) |
 | `/admin/{secret_key}` | GET | View URL statistics |
 | `/admin/{secret_key}` | DELETE | Deactivate shortened URL |
 
 ## Configuration
 
-Environment variables can be set in `.env` file:
+Environment variables (`.env`):
 
-```
-
+```env
 ENV_NAME="Development"
 BASE_URL="http://localhost:8000"
 DB_URL="sqlite+aiosqlite:///./shortener.db"
-
 ```
+
+## Design Goals
+
+This project demonstrates:
+- Handling race conditions in distributed systems
+- Atomic operations for data consistency
+- Clean service layer architecture
+- Comprehensive testing strategies
+- Async Python patterns with FastAPI + SQLAlchemy
 
 ## Contributing
 
-This is a learning project, but suggestions and feedback are welcome! Feel free to open an issue or submit a pull request.
+This is a learning project. Feedback and suggestions welcome!
