@@ -1,8 +1,11 @@
+import asyncio
+import logging
+
 from shortener_app import models, schemas
 from shortener_app.database import engine, AsyncSessionLocal
 from shortener_app.config import get_settings
 from shortener_app.services import URLService
-from shortener_app.infrastructure import RateLimiter, create_redis_client
+from shortener_app.infrastructure import RateLimiter, create_redis_client, ClickBuffer
 
 import re
 import validators
@@ -11,6 +14,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import URL
+
+logger = logging.getLogger(__name__)
 
 # Whitelists matching the keygen output: url keys are [A-Z0-9]{6},
 # secret keys are [A-Z0-9]{6}_[A-Z0-9]{8}. Ranges here allow for
@@ -29,6 +34,16 @@ def _validate_secret_key(key: str):
     if not _SECRET_KEY_RE.match(key):
         raise HTTPException(status_code=404, detail="URL not found")
 
+async def _flush_loop(click_buffer: ClickBuffer, interval: int):
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            async with AsyncSessionLocal() as db:
+                await click_buffer.flush_to_db(db)
+        except Exception:
+            logger.exception("Click flush failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Auto-create tables only in test mode (when not using migrations)
@@ -37,8 +52,23 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(models.Base.metadata.create_all)
 
     app.state.redis = await create_redis_client()
+    app.state.click_buffer = ClickBuffer(app.state.redis)
+
+    flush_task = asyncio.create_task(
+        _flush_loop(app.state.click_buffer, get_settings().click_flush_interval)
+    )
 
     yield
+
+    flush_task.cancel()
+    try:
+        await flush_task
+    except asyncio.CancelledError:
+        pass
+
+    # Final flush so in-flight counts aren't lost on clean shutdown
+    async with AsyncSessionLocal() as db:
+        await app.state.click_buffer.flush_to_db(db)
 
     await app.state.redis.close()
     await engine.dispose()
@@ -70,7 +100,7 @@ def read_root():
     return {"message": "Welcome to the URL shortener API"}
 
 
-def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
+def get_admin_info(db_url: models.URL, buffered_clicks: int = 0) -> schemas.URLInfo:
     base_url = URL(get_settings().base_url)
     admin_endpoint = app.url_path_for(
         "admin info", secret_key=db_url.secret_key
@@ -78,7 +108,7 @@ def get_admin_info(db_url: models.URL) -> schemas.URLInfo:
     return schemas.URLInfo(
         target_url=db_url.target_url,
         is_active=db_url.is_active,
-        clicks=db_url.clicks,
+        clicks=db_url.clicks + buffered_clicks,
         url=str(base_url.replace(path=db_url.key)),
         admin_url=str(base_url.replace(path=admin_endpoint))
     )
@@ -101,9 +131,9 @@ async def forward_to_target_url(
     ):
     _validate_url_key(url_key)
     await read_rate_limiter.check_rate_limit(request)
-    db_url = await service.get_by_key_with_lock(url_key)
+    db_url = await service.get_by_key(url_key)
     if db_url:
-        await service.increment_clicks(db_url.id)
+        await request.app.state.click_buffer.increment(db_url.id)
         return RedirectResponse(db_url.target_url)
     else:
         raise_not_found(request)
@@ -119,7 +149,8 @@ async def get_url_info(
 ):
     _validate_secret_key(secret_key)
     if db_url := await service.get_by_secret_key(secret_key):
-        return get_admin_info(db_url)
+        buffered = await request.app.state.click_buffer.get_count(db_url.id)
+        return get_admin_info(db_url, buffered_clicks=buffered)
     else:
         raise_not_found(request)
 
