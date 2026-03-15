@@ -2,7 +2,6 @@
 # Copy this to docker-compose.override.yml to customize your local setup
 # docker-compose.override.yml is gitignored and won't be committed
 
-version: '3.8'
 
 services:
   postgres:
