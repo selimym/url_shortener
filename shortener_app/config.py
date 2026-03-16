@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     rate_limit_create: int = 10  # POST requests per minute
     rate_limit_read: int = 100   # GET requests per minute
     use_migrations: bool = False  # True for production, False for tests
+    click_flush_interval: int = 30  # seconds between Redis → SQL click flushes
 
 
 @lru_cache
