@@ -85,6 +85,7 @@ def get_url_service(db: AsyncSession = Depends(get_db)) -> URLService:
 # Rate limiters
 create_rate_limiter = RateLimiter(max_requests=get_settings().rate_limit_create)
 read_rate_limiter = RateLimiter(max_requests=get_settings().rate_limit_read)
+admin_rate_limiter = RateLimiter(max_requests=get_settings().rate_limit_admin)
 
 def raise_bad_request(message):
     raise HTTPException(status_code=400, detail=message)
@@ -152,6 +153,7 @@ async def get_url_info(
     secret_key: str, request: Request, service: URLService = Depends(get_url_service)
 ):
     _validate_secret_key(secret_key)
+    await admin_rate_limiter.check_rate_limit(request, endpoint="/admin")
     if db_url := await service.get_by_secret_key(secret_key):
         buffered = await request.app.state.click_buffer.get_count(db_url.id)
         return get_admin_info(db_url, buffered_clicks=buffered)
@@ -164,6 +166,7 @@ async def delete_url(
     secret_key: str, request: Request, service: URLService = Depends(get_url_service)
 ):
     _validate_secret_key(secret_key)
+    await admin_rate_limiter.check_rate_limit(request, endpoint="/admin")
     if db_url := await service.deactivate(secret_key):
         message = f"Successfully deleted shortened URL for '{db_url.target_url}'"
         return {"detail": message}

@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     db_url: str = "sqlite+aiosqlite:///./shortener.db"
     redis_url: str = "redis://localhost:6379/0"
     rate_limit_enabled: bool = True
-    rate_limit_create: int = 10  # POST requests per minute
-    rate_limit_read: int = 100   # GET requests per minute
+    rate_limit_create: int = 10   # POST requests per minute
+    rate_limit_read: int = 100    # GET requests per minute
+    rate_limit_admin: int = 10    # admin GET/DELETE requests per minute (brute-force protection)
     use_migrations: bool = False  # True for production, False for tests
     click_flush_interval: int = 30  # seconds between Redis → SQL click flushes
 
