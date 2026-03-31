@@ -7,14 +7,18 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
 
-    async def check_rate_limit(self, request: Request):
+    async def check_rate_limit(self, request: Request, endpoint: str | None = None):
         if not get_settings().rate_limit_enabled:
             return
 
         # IP-based limiting: without auth, the client's IP is the only available identifier.
         # Users behind the same NAT share one bucket — acceptable trade-off for a public API.
+        # endpoint overrides the path component so wildcard routes like /admin/{secret}
+        # share one bucket per IP instead of one per unique secret (which would allow
+        # unlimited brute-force attempts across different secrets).
         redis = request.app.state.redis
-        key = f"rate_limit:{request.client.host}:{request.url.path}"
+        path = endpoint if endpoint is not None else request.url.path
+        key = f"rate_limit:{request.client.host}:{path}"
 
         # INCR is atomic — the returned count is the authoritative gate.
         # The old GET → check → SETEX/INCR pattern had two bugs:
