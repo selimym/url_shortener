@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>shrt. — manage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,700&family=Cormorant:ital,wght@1,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0a;
+      --surface:   #111111;
+      --surface2:  #181818;
+      --border:    #252525;
+      --border2:   #303030;
+      --text:      #ede8df;
+      --muted:     #4a4a4a;
+      --muted2:    #6e6e6e;
+      --orange:    #ff5500;
+      --orange-lo: rgba(255,85,0,.08);
+      --error:     #ff3b3b;
+      --green:     #22c55e;
+    }
+
+    ::selection { background: var(--orange); color: #fff; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+    html, body { height: 100%; }
+
+    body {
+      background: var(--bg);
+      background-image: radial-gradient(ellipse 80% 60% at 50% -10%, #2a1200 0%, transparent 60%);
+      color: var(--text);
+      font-family: 'Bricolage Grotesque', sans-serif;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .strip {
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--orange), transparent);
+      opacity: .6;
+    }
+
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 40px;
+    }
+
+    .logo {
+      font-family: 'Cormorant', serif;
+      font-style: italic;
+      font-weight: 600;
+      font-size: 1.35rem;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: .01em;
+    }
+
+    .nav-link {
+      font-size: .75rem;
+      font-weight: 300;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      text-decoration: none;
+      transition: color .2s;
+    }
+    .nav-link:hover { color: var(--orange); }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px 80px;
+    }
+
+    .hero {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 700;
+      letter-spacing: -.03em;
+      line-height: 1.05;
+    }
+
+    h1 em {
+      font-style: normal;
+      color: var(--orange);
+    }
+
+    .tagline {
+      margin-top: 12px;
+      font-size: .82rem;
+      font-weight: 300;
+      color: var(--muted2);
+      letter-spacing: .04em;
+    }
+
+    /* ── form ── */
+    .form-wrap {
+      width: 100%;
+      max-width: 560px;
+    }
+
+    .input-row {
+      display: flex;
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .input-row:focus-within {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 3px var(--orange-lo);
+    }
+
+    .key-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 16px 20px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .82rem;
+      color: var(--text);
+      outline: none;
+      min-width: 0;
+    }
+    .key-input::placeholder { color: var(--muted); }
+
+    .btn-lookup {
+      flex-shrink: 0;
+      border: none;
+      border-left: 1px solid var(--border2);
+      background: transparent;
+      color: var(--muted2);
+      font-family: 'Bricolage Grotesque', sans-serif;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 16px 28px;
+      cursor: pointer;
+      transition: background .2s, color .2s, border-color .2s;
+      white-space: nowrap;
+    }
+    .btn-lookup:hover {
+      background: var(--orange);
+      color: #fff;
+      border-left-color: var(--orange);
+    }
+    .btn-lookup:disabled { opacity: .35; cursor: default; }
+
+    /* ── notices ── */
+    .notice {
+      margin-top: 12px;
+      font-size: .78rem;
+      padding: 10px 14px;
+      border: 1px solid;
+      display: none;
+    }
+    .notice.show { display: block; }
+    .notice.error { color: var(--error); border-color: rgba(255,59,59,.25); background: rgba(255,59,59,.06); }
+
+    /* ── info panel ── */
+    .info-panel {
+      display: none;
+      margin-top: 20px;
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .3s ease, transform .3s ease;
+    }
+    .info-panel.show { opacity: 1; transform: translateY(0); }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .panel-title {
+      font-size: .65rem;
+      font-weight: 700;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      color: var(--muted2);
+    }
+
+    .status-badge {
+      font-size: .62rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border: 1px solid currentColor;
+    }
+    .status-badge.active   { color: var(--green); }
+    .status-badge.inactive { color: var(--muted2); }
+
+    /* ── stats grid ── */
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      padding: 20px 24px;
+      border-right: 1px solid var(--border);
+    }
+    .stat:nth-child(even) { border-right: none; }
+
+    .stat-label {
+      font-size: .62rem;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .stat-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .82rem;
+      color: var(--text);
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    .stat-val.big {
+      font-size: 2.2rem;
+      font-weight: 500;
+      color: var(--orange);
+      letter-spacing: -.02em;
+    }
+
+    /* ── target row ── */
+    .target-row {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+    }
+
+    .target-label {
+      font-size: .62rem;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .target-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .78rem;
+      color: var(--muted2);
+      word-break: break-all;
+    }
+
+    /* ── delete zone ── */
+    .delete-zone {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      gap: 16px;
+    }
+
+    .delete-hint {
+      font-size: .75rem;
+      font-weight: 300;
+      color: var(--muted2);
+    }
+
+    .btn-delete {
+      font-family: 'Bricolage Grotesque', sans-serif;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 9px 20px;
+      cursor: pointer;
+      border: 1px solid rgba(255,59,59,.3);
+      background: transparent;
+      color: var(--error);
+      transition: all .2s;
+      white-space: nowrap;
+    }
+    .btn-delete:hover { background: var(--error); color: #fff; border-color: var(--error); }
+    .btn-delete:disabled { opacity: .3; cursor: default; }
+
+    /* ── deleted state ── */
+    .deleted-msg {
+      display: none;
+      margin-top: 20px;
+      padding: 32px 24px;
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      text-align: center;
+      animation: fadein .3s ease;
+    }
+    .deleted-msg.show { display: block; }
+    .deleted-msg p { font-size: .85rem; color: var(--muted2); margin-bottom: 16px; }
+    .deleted-msg a {
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--orange);
+      text-decoration: none;
+    }
+    .deleted-msg a:hover { text-decoration: underline; }
+
+    @keyframes fadein {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    footer {
+      text-align: center;
+      padding: 24px;
+      font-size: .68rem;
+      font-weight: 300;
+      letter-spacing: .1em;
+      color: var(--muted);
+    }
+
+    @media (max-width: 500px) {
+      nav { padding: 20px; }
+      h1 { font-size: 2rem; }
+      .stats { grid-template-columns: 1fr; }
+      .stat { border-right: none; border-bottom: 1px solid var(--border); }
+      .delete-zone { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="strip"></div>
+
+<nav>
+  <a class="logo" href="/">shrt.</a>
+  <a class="nav-link" href="/">← New link</a>
+</nav>
+
+<main>
+  <div class="hero">
+    <h1>Manage a <em>link</em></h1>
+    <p class="tagline">Enter your admin key to view stats or delete the URL.</p>
+  </div>
+
+  <div class="form-wrap">
+    <div class="input-row">
+      <input
+        id="keyInput"
+        class="key-input"
+        type="text"
+        placeholder="Admin key — e.g. ABC123_GHIJKLMN"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <button class="btn-lookup" id="lookupBtn">Look up</button>
+    </div>
+
+    <div class="notice error" id="errBox"></div>
+
+    <div class="info-panel" id="infoPanel">
+      <div class="panel-header">
+        <span class="panel-title">Link info</span>
+        <span class="status-badge active" id="statusBadge">active</span>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Short URL</div>
+          <div class="stat-val" id="infoShort"></div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Total clicks</div>
+          <div class="stat-val big" id="infoClicks">0</div>
+        </div>
+      </div>
+
+      <div class="target-row">
+        <span class="target-label">Target</span>
+        <span class="target-val" id="infoTarget"></span>
+      </div>
+
+      <div class="delete-zone">
+        <span class="delete-hint">Permanently deactivate this short URL.</span>
+        <button class="btn-delete" id="deleteBtn">Delete link</button>
+      </div>
+    </div>
+
+    <div class="deleted-msg" id="deletedMsg">
+      <p>This link has been deleted.</p>
+      <a href="/">Create a new one →</a>
+    </div>
+  </div>
+</main>
+
+<footer>— url compression service —</footer>
+
+<script>
+  const keyInput  = document.getElementById('keyInput');
+  const lookupBtn = document.getElementById('lookupBtn');
+  const deleteBtn = document.getElementById('deleteBtn');
+  const infoPanel = document.getElementById('infoPanel');
+  const errBox    = document.getElementById('errBox');
+
+  // Auto-populate from ?key= param
+  const params = new URLSearchParams(location.search);
+  if (params.has('key')) {
+    keyInput.value = params.get('key');
+    lookup();
+  }
+
+  keyInput.addEventListener('keydown', e => { if (e.key === 'Enter') lookup(); });
+  lookupBtn.addEventListener('click', lookup);
+  deleteBtn.addEventListener('click', deleteUrl);
+
+  async function lookup() {
+    const key = keyInput.value.trim();
+    if (!key) { keyInput.focus(); return; }
+
+    errBox.className = 'notice error';
+    infoPanel.style.display = 'none';
+    infoPanel.classList.remove('show');
+    document.getElementById('deletedMsg').classList.remove('show');
+
+    lookupBtn.disabled = true;
+    lookupBtn.textContent = '…';
+
+    try {
+      const res  = await fetch('/admin/' + encodeURIComponent(key));
+      const data = await res.json();
+
+      if (!res.ok) { showErr(data.detail || 'Not found.'); return; }
+
+      document.getElementById('infoShort').textContent   = data.url;
+      document.getElementById('infoClicks').textContent  = data.clicks;
+      document.getElementById('infoTarget').textContent  = data.target_url;
+
+      const badge = document.getElementById('statusBadge');
+      badge.textContent  = data.is_active ? 'active' : 'inactive';
+      badge.className    = 'status-badge ' + (data.is_active ? 'active' : 'inactive');
+      deleteBtn.disabled = !data.is_active;
+
+      infoPanel.style.display = 'block';
+      requestAnimationFrame(() => requestAnimationFrame(() => infoPanel.classList.add('show')));
+    } catch {
+      showErr('Could not reach the server.');
+    } finally {
+      lookupBtn.disabled = false;
+      lookupBtn.textContent = 'Look up';
+    }
+  }
+
+  async function deleteUrl() {
+    if (!confirm('Delete this short URL? This cannot be undone.')) return;
+
+    const key = keyInput.value.trim();
+    deleteBtn.disabled = true;
+    deleteBtn.textContent = '…';
+
+    try {
+      const res  = await fetch('/admin/' + encodeURIComponent(key), { method: 'DELETE' });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showErr(data.detail || 'Could not delete.');
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = 'Delete link';
+        return;
+      }
+
+      infoPanel.classList.remove('show');
+      setTimeout(() => {
+        infoPanel.style.display = 'none';
+        document.getElementById('deletedMsg').classList.add('show');
+      }, 300);
+    } catch {
+      showErr('Could not reach the server.');
+      deleteBtn.disabled = false;
+      deleteBtn.textContent = 'Delete link';
+    }
+  }
+
+  function showErr(msg) {
+    errBox.textContent = msg;
+    errBox.classList.add('show');
+  }
+</script>
+</body>
+</html>

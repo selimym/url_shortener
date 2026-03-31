@@ -11,7 +11,7 @@ import re
 import validators
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import URL
 
@@ -97,7 +97,12 @@ def raise_not_found(request):
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the URL shortener API"}
+    return FileResponse("static/index.html")
+
+
+@app.get("/manage")
+def admin_panel():
+    return FileResponse("static/admin.html")
 
 
 @app.get("/healthz")

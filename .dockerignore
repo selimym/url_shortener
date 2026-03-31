@@ -13,3 +13,4 @@ venv/
 htmlcov/
 .gitignore
 CLAUDE.md
+cloud-run.yaml

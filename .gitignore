@@ -12,3 +12,4 @@ htmlcov/
 .pytest_cache/
 .vscode/
 *.log
+cloud-run.yaml

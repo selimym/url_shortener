@@ -14,6 +14,7 @@ ENV PATH="/venv/bin:$PATH"
 COPY shortener_app ./shortener_app
 COPY alembic ./alembic
 COPY alembic.ini .
+COPY static ./static
 
 # Cloud Run injects PORT; default to 8000 for local docker-compose use
 EXPOSE 8000
