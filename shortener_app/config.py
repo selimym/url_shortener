@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 
 from pydantic import ConfigDict
@@ -21,5 +22,5 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    print(f"Loading settings for: {settings.env_name}")
+    logging.getLogger(__name__).info("Loading settings for: %s", settings.env_name)
     return settings

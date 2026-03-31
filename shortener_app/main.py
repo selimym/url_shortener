@@ -96,8 +96,12 @@ def raise_not_found(request):
 
 @app.get("/")
 def read_root():
-    """Root endpoint - welcome message."""
     return {"message": "Welcome to the URL shortener API"}
+
+
+@app.get("/healthz")
+def health_check():
+    return {"status": "ok"}
 
 
 def get_admin_info(db_url: models.URL, buffered_clicks: int = 0) -> schemas.URLInfo:

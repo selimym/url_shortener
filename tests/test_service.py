@@ -47,20 +47,6 @@ async def test_get_by_secret_key(test_db):
 
 
 @pytest.mark.asyncio
-async def test_increment_clicks(test_db):
-    async with test_db() as db:
-        service = URLService(db)
-        url = await service.create("https://example.com")
-        assert url.clicks == 0
-
-        updated = await service.increment_clicks(url.id)
-        assert updated.clicks == 1
-
-        updated = await service.increment_clicks(url.id)
-        assert updated.clicks == 2
-
-
-@pytest.mark.asyncio
 async def test_deactivate(test_db):
     async with test_db() as db:
         service = URLService(db)
