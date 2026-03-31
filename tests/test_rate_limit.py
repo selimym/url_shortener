@@ -13,6 +13,17 @@ from shortener_app.infrastructure.rate_limiter import RateLimiter
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
+class _NullPipeline:
+    """Pipeline that always reports count=1 (no rate limiting)."""
+    def zremrangebyscore(self, *a): return self
+    def zadd(self, *a, **kw): return self
+    def zcard(self, *a): return self
+    def expire(self, *a): return self
+    async def execute(self): return [0, 1, 1, True]
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): pass
+
+
 @pytest.fixture(scope="function")
 async def test_engine():
     """Create test database engine."""
@@ -40,21 +51,59 @@ async def test_db(test_engine):
 
 @pytest.fixture
 async def mock_redis_with_rate_limit():
-    """Mock Redis that enforces rate limits using the INCR-first pattern."""
+    """Mock Redis that enforces sliding-window rate limits via a pipeline mock."""
     mock_redis = AsyncMock()
-    request_counts = {}
+    zsets: dict[str, dict[str, float]] = {}
 
-    async def mock_incr(key):
-        current = int(request_counts.get(key, 0))
-        request_counts[key] = str(current + 1)
-        return current + 1
+    class MockPipeline:
+        def __init__(self):
+            self._cmds: list = []
 
-    async def mock_expire(key, ttl):
-        return True
+        def zremrangebyscore(self, key, min_score, max_score):
+            self._cmds.append(("zremrangebyscore", key, min_score, max_score))
+            return self
 
-    mock_redis.incr.side_effect = mock_incr
-    mock_redis.expire.side_effect = mock_expire
+        def zadd(self, key, mapping):
+            self._cmds.append(("zadd", key, mapping))
+            return self
 
+        def zcard(self, key):
+            self._cmds.append(("zcard", key))
+            return self
+
+        def expire(self, key, ttl):
+            self._cmds.append(("expire", key, ttl))
+            return self
+
+        async def execute(self):
+            results = []
+            for op, *args in self._cmds:
+                if op == "zremrangebyscore":
+                    key, lo, hi = args
+                    zset = zsets.setdefault(key, {})
+                    stale = [m for m, s in zset.items() if lo <= s <= hi]
+                    for m in stale:
+                        del zset[m]
+                    results.append(len(stale))
+                elif op == "zadd":
+                    key, mapping = args
+                    zsets.setdefault(key, {}).update(mapping)
+                    results.append(len(mapping))
+                elif op == "zcard":
+                    results.append(len(zsets.get(args[0], {})))
+                elif op == "expire":
+                    results.append(True)
+            return results
+
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+
+    # pipeline() is synchronous in redis.asyncio — must be a MagicMock, not AsyncMock
+    mock_redis.pipeline = MagicMock(side_effect=lambda: MockPipeline())
+    # Cache miss for all keys so redirects fall through to PostgreSQL
+    mock_redis.get.return_value = None
+    mock_redis.setex.return_value = True
+    mock_redis.delete.return_value = True
     return mock_redis
 
 
@@ -118,14 +167,15 @@ async def test_read_url_rate_limit_enforcement(rate_limited_client):
     assert response.status_code == 200
     url_key = response.json()["url"].split("/")[-1]
 
-    # Access URL up to the limit (100)
-    for _ in range(99):  # We already made 1 POST which counts separately
+    # Make exactly 100 GET requests (the limit)
+    for _ in range(100):
         response = await rate_limited_client.get(f"/{url_key}")
-        assert response.status_code in [200, 307]  # Redirect or OK
+        assert response.status_code in [200, 307]
 
-    # The next request should still work (we haven't hit GET limit yet)
+    # 101st request must be rejected
     response = await rate_limited_client.get(f"/{url_key}")
-    assert response.status_code in [200, 307]
+    assert response.status_code == 429
+    assert "Rate limit exceeded" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -151,6 +201,8 @@ async def test_rate_limit_returns_429(rate_limited_client):
 async def test_rate_limit_disabled(test_db, monkeypatch):
     """Test that rate limiting can be disabled via config."""
     mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    mock_redis.pipeline = MagicMock(return_value=_NullPipeline())
     app.state.redis = mock_redis
     app.state.click_buffer = ClickBuffer(mock_redis)
 
@@ -183,21 +235,24 @@ async def test_rate_limit_disabled(test_db, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_rate_limit_per_client(test_db, monkeypatch):
-    """Test that rate limits are tracked per client IP."""
-    request_counts = {}
+    """Test that rate limit keys follow the expected IP + path format."""
+    seen_keys: list[str] = []
 
     mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
 
-    async def mock_incr(key):
-        current = int(request_counts.get(key, 0))
-        request_counts[key] = str(current + 1)
-        return current + 1
+    class TrackingPipeline:
+        def zremrangebyscore(self, key, *a): return self
+        def zadd(self, key, mapping):
+            seen_keys.append(key)
+            return self
+        def zcard(self, *a): return self
+        def expire(self, *a): return self
+        async def execute(self): return [0, 1, 1, True]
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
 
-    async def mock_expire(key, ttl):
-        return True
-
-    mock_redis.incr.side_effect = mock_incr
-    mock_redis.expire.side_effect = mock_expire
+    mock_redis.pipeline = MagicMock(side_effect=lambda: TrackingPipeline())
 
     app.state.redis = mock_redis
     app.state.click_buffer = ClickBuffer(mock_redis)
@@ -212,27 +267,25 @@ async def test_rate_limit_per_client(test_db, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
 
-    # Verify that keys are created for the rate limiter (IP + path format)
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test"
     ) as client:
         await client.post("/url", json={"target_url": "https://example.com"})
 
-    # Key format is now "rate_limit:{ip}:{path}" — human-readable, no MD5
-    assert len(request_counts) > 0
-    assert any(k.startswith("rate_limit:") for k in request_counts)
+    # Key format: "rate_limit:{ip}:{path}" — human-readable, no MD5
+    assert len(seen_keys) > 0
+    assert any(k.startswith("rate_limit:") for k in seen_keys)
 
     app.dependency_overrides.clear()
     del app.state.redis
     del app.state.click_buffer
 
 
-# ── Unit tests for the two rate-limiter bugs ──────────────────────────────────
+# ── Unit tests for the sliding-window rate limiter ────────────────────────────
 #
-# These test RateLimiter directly with controlled mocks, so they don't need the
-# full HTTP stack. Each test documents the original bug in a comment, then
-# verifies that the fixed INCR-first pattern behaves correctly.
+# These test RateLimiter directly with a lightweight pipeline mock so they
+# don't need the full HTTP stack.
 
 def _make_mock_request(mock_redis, ip="127.0.0.1", path="/url"):
     request = MagicMock()
@@ -242,100 +295,57 @@ def _make_mock_request(mock_redis, ip="127.0.0.1", path="/url"):
     return request
 
 
+def _make_pipeline_redis(zcard_result: int):
+    """Return a mock Redis whose pipeline reports zcard_result for the count."""
+    mock_redis = AsyncMock()
+
+    class FixedPipeline:
+        def zremrangebyscore(self, *a): return self
+        def zadd(self, *a, **kw): return self
+        def zcard(self, *a): return self
+        def expire(self, *a): return self
+        async def execute(self): return [0, 1, zcard_result, True]
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+
+    mock_redis.pipeline = MagicMock(return_value=FixedPipeline())
+    return mock_redis
+
+
 @pytest.mark.asyncio
-async def test_rate_limit_expire_called_for_new_key(monkeypatch):
-    """
-    Bug (old GET → check → SETEX/INCR pattern):
-
-        GET key → None
-        SETEX key 60 1       ← TTL set here, fine
-
-        BUT: if the key expired between a GET (that returned a value) and the
-        subsequent INCR, the INCR created a new key with *no TTL*. That counter
-        would then persist forever, permanently rate-limiting the user until a
-        Redis restart.
-
-    Fix (INCR-first):
-
-        INCR key → 1  (new key created)
-        EXPIRE key 60  ← TTL always set when count == 1
-
-    INCR returns 1 only when the key did not previously exist, so EXPIRE is
-    called on every new key with no gap for the TTL-less state to persist.
-    This test verifies that expire() is called after incr() returns 1.
-    """
+async def test_sliding_window_counts_only_recent_requests(monkeypatch):
+    """Requests within the window are counted; the pipeline prunes stale entries."""
     from shortener_app.config import get_settings
     monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
 
-    mock_redis = AsyncMock()
-    mock_redis.incr.return_value = 1   # first request — new key
-    mock_redis.expire.return_value = True
-
+    # Simulate 5 current requests in the window
+    mock_redis = _make_pipeline_redis(zcard_result=5)
     limiter = RateLimiter(max_requests=10)
+    # Should pass without raising
     await limiter.check_rate_limit(_make_mock_request(mock_redis))
-
-    mock_redis.expire.assert_called_once_with("rate_limit:127.0.0.1:/url", 60)
+    mock_redis.pipeline.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_expire_not_called_for_existing_key(monkeypatch):
-    """
-    expire() must only be called when INCR creates a new key (count == 1).
-
-    For subsequent requests in the same window (count > 1), the TTL is already
-    set. Calling EXPIRE again would reset the sliding window, leaking extra
-    quota to the user. Verify expire() is skipped for mid-window requests.
-    """
+async def test_sliding_window_allows_request_at_limit(monkeypatch):
+    """A count exactly equal to max_requests is still allowed."""
     from shortener_app.config import get_settings
     monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
 
-    mock_redis = AsyncMock()
-    mock_redis.incr.return_value = 5   # existing key, mid-window
-    mock_redis.expire.return_value = True
-
+    mock_redis = _make_pipeline_redis(zcard_result=10)
     limiter = RateLimiter(max_requests=10)
-    await limiter.check_rate_limit(_make_mock_request(mock_redis))
-
-    mock_redis.expire.assert_not_called()
+    await limiter.check_rate_limit(_make_mock_request(mock_redis))  # must not raise
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_overflow_impossible_with_atomic_incr(monkeypatch):
-    """
-    Bug (old GET → check → INCR pattern):
-
-        Request A: GET key → 9   (9 < limit=10, passes check)
-                                  ← race window: B slips in before A's INCR
-        Request B: GET key → 9   (9 < limit=10, passes check)
-        Request A: INCR key → 10  ✓ allowed
-        Request B: INCR key → 11  ✓ also allowed — limit silently exceeded
-
-    Both requests saw the same pre-increment count, both passed the check, and
-    both incremented. The limit was bypassed with no error returned.
-
-    Fix (INCR-first):
-
-        Request A: INCR key → 10  (10 == limit, still allowed)
-        Request B: INCR key → 11  (11 > limit → 429)
-
-    INCR is atomic: the returned value IS the post-increment count. No two
-    concurrent requests can both observe the same post-increment value.
-
-    This test simulates "request B": INCR already returned 11, which exceeds
-    the limit, so a 429 must be raised — and no GET was involved.
-    """
+async def test_sliding_window_rejects_over_limit(monkeypatch):
+    """A count exceeding max_requests raises 429."""
     from shortener_app.config import get_settings
     monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
 
-    mock_redis = AsyncMock()
-    mock_redis.incr.return_value = 11  # count already over the limit
-    mock_redis.expire.return_value = True
-
+    mock_redis = _make_pipeline_redis(zcard_result=11)
     limiter = RateLimiter(max_requests=10)
     with pytest.raises(HTTPException) as exc_info:
         await limiter.check_rate_limit(_make_mock_request(mock_redis))
 
     assert exc_info.value.status_code == 429
-    # Verify the INCR-first pattern: INCR was called, GET was not.
-    mock_redis.incr.assert_called_once()
-    mock_redis.get.assert_not_called()

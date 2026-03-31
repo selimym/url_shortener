@@ -8,6 +8,28 @@ from shortener_app.database import Base
 from shortener_app.infrastructure import ClickBuffer
 
 
+class _FakeRedisPipeline:
+    """No-op pipeline for the sliding-window rate limiter in general tests.
+
+    Returns a fixed count so tests never trigger rate limits. The real
+    pipeline behaviour is exercised by test_rate_limit.py via AsyncMock.
+    """
+    def __init__(self, count: int = 1):
+        self._count = count
+
+    def zremrangebyscore(self, *args): return self
+    def zadd(self, *args, **kwargs): return self
+    def zcard(self, *args): return self
+    def expire(self, *args): return self
+
+    async def execute(self):
+        # [removed_count, added_count, zcard_result, expire_result]
+        return [0, 1, self._count, True]
+
+    async def __aenter__(self): return self
+    async def __aexit__(self, *args): pass
+
+
 class FakeRedis:
     """Minimal stateful Redis fake. Implements only the subset used by RateLimiter and ClickBuffer."""
 
@@ -15,13 +37,16 @@ class FakeRedis:
         self._strings: dict[str, str] = {}
         self._zsets: dict[str, dict[str, float]] = {}
 
-    # Rate-limiter methods are no-ops so general tests never hit a rate limit.
-    # Rate limiting behaviour is tested separately in test_rate_limit.py.
     async def get(self, key: str):
-        return None
+        return self._strings.get(key)
 
     async def setex(self, key: str, ttl: int, value):
-        pass
+        self._strings[key] = value
+
+    # Rate-limiter pipeline is a no-op (returns count=1) so general tests never hit a limit.
+    # Rate limiting behaviour is tested separately in test_rate_limit.py.
+    def pipeline(self):
+        return _FakeRedisPipeline(count=1)
 
     async def incr(self, key: str) -> int:
         return 1

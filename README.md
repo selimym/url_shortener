@@ -12,11 +12,17 @@ sequenceDiagram
     participant D as PostgreSQL
 
     C->>A: GET /{key}
-    A->>R: Rate check (INCR rate_limit:{ip}:{path})
-    A->>D: SELECT url WHERE key=?
-    D-->>A: url row
+    A->>R: Rate check (sliding window sorted set)
+    A->>R: GET url:{key}
+    alt cache hit
+        R-->>A: {target_url, id}
+    else cache miss
+        A->>D: SELECT url WHERE key=?
+        D-->>A: url row
+        A->>R: SETEX url:{key} 300s {target_url, id}
+    end
     A->>R: ZINCRBY clicks:leaderboard 1 {url_id}
-    A-->>C: 302 → target_url
+    A-->>C: 307 → target_url
 
     Note over R,D: Every 30s — flush buffered counts to SQL
     R->>D: UPDATE urls SET clicks = clicks + N (batch)
@@ -58,6 +64,7 @@ RATE_LIMIT_ENABLED=true
 RATE_LIMIT_CREATE=10
 RATE_LIMIT_READ=100
 CLICK_FLUSH_INTERVAL=30
+URL_CACHE_TTL=300
 USE_MIGRATIONS=false
 ```
 
