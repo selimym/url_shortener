@@ -216,45 +216,40 @@ For click counts used in analytics, ~30s of potential loss is acceptable. For fi
 
 ---
 
-## 7. Rate limiter — INCR atomicity and TTL enforcement
+## 7. Rate limiter — sliding window via sorted set
 
-### Bug 1: Non-atomic check-then-increment
+### The fixed-window exploit
 
-**The bug in the original GET → check → SETEX/INCR pattern**
+The previous INCR+EXPIRE implementation used a fixed time bucket. A window that resets every 60 seconds at a fixed boundary allows a burst attack: send `limit` requests just before the reset and `limit` more just after. Both batches land in different windows — both pass — but `2×limit` requests hit the server in under a second.
 
-```
-Request A: GET key → 9    (9 < limit=10, passes check)
-                           ← race window: B reads before A increments
-Request B: GET key → 9    (9 < limit=10, passes check)
-Request A: INCR key → 10  ✓ allowed
-Request B: INCR key → 11  ✓ also allowed — limit silently exceeded
-```
+### Current approach: sliding window (`infrastructure/rate_limiter.py`)
 
-`GET → check → INCR` involves two separate Redis round-trips. Both requests read the same count (9), both pass the `>= limit` check, and both increment — silently exceeding the limit by 1.
-
-**Fix: INCR-first pattern** (`infrastructure/rate_limiter.py`)
+Each request is stored in a Redis sorted set scored by its Unix timestamp. On every request, a pipeline executes four commands atomically:
 
 ```python
-count = await redis.incr(key)   # atomic: returned count is the gate
-if count == 1:
-    await redis.expire(key, window_seconds)
-if count > max_requests:
-    raise HTTPException(429)
+async with redis.pipeline() as pipe:
+    pipe.zremrangebyscore(key, 0, now - window_seconds - 1e-9)  # evict stale entries
+    pipe.zadd(key, {str(now): now})                              # record this request
+    pipe.zcard(key)                                              # count in window
+    pipe.expire(key, window_seconds)                            # auto-cleanup idle keys
+    results = await pipe.execute()
+count = results[2]
 ```
 
-`INCR` is atomic. The returned count is the count *after* the increment, and it is the check value. No two concurrent requests can observe the same post-increment count.
+`zremrangebyscore` prunes every entry whose score (timestamp) falls outside the rolling window. `zcard` then counts only requests from the last `window_seconds`. The limit applies to a true rolling interval — no fixed boundary, no burst exploit.
 
-### Bug 2: Counter with no TTL
+**Member key collision**: two requests at the exact same microsecond would share the same `str(now)` member, causing `zadd` to overwrite rather than add. The worst case is an undercount of 1, which is acceptable for a rate limiter. The probability on CPython with float64 timestamps is negligible under real traffic.
 
-**The bug**
+**Comparison to INCR-based approach**
 
-With the old pattern, `SETEX` set the TTL only when the key was *new* (when `GET` returned `None`). For existing keys, only `INCR` was called — no TTL update. If the key happened to expire between the `GET` (which returned a value) and the subsequent `INCR`, the `INCR` created a new key with **no TTL**. That counter would then persist indefinitely, permanently rate-limiting the user.
+| | INCR + EXPIRE (old) | Sorted set (current) |
+|---|---|---|
+| Window type | Fixed (resets on schedule) | Sliding (always last N seconds) |
+| Burst at boundary | 2× limit possible | Not possible |
+| Redis memory per key | O(1) — one integer | O(requests in window) |
+| Atomicity | INCR atomic; EXPIRE separate call | Full pipeline |
 
-**Fix**
-
-`INCR` returns `1` when it creates a new key (the key did not exist before). The check `if count == 1: await redis.expire(key, window)` sets the TTL immediately on every new key.
-
-The remaining edge case — crash between `INCR` and `EXPIRE` — would leave the key without a TTL. Eliminating this entirely would require a Lua script or `MULTI/EXEC`. The current implementation accepts this as a one-in-a-million edge case.
+The memory overhead is bounded: each entry is a float member + float score (~50 bytes). At 100 requests/minute per IP, that is ~5 KB per active client — negligible.
 
 ---
 
@@ -309,3 +304,39 @@ async def flush_to_db(self, db):
 ```
 
 By draining the stale key before the `RENAME`, no click data is overwritten. Combined with Bug 1's fix, `_FLUSH_KEY` only persists when `db.commit()` failed, so the recovery path is only triggered on actual failures.
+
+---
+
+## 9. URL cache — read path and invalidation
+
+### The problem
+
+Every redirect hits PostgreSQL for a `SELECT url WHERE key = ?`. For popular links this is wasteful: the row changes rarely (only on deactivation) but is read on every visit.
+
+### Current approach (`main.py`)
+
+The redirect handler checks Redis before PostgreSQL:
+
+```
+GET url:{key}   → hit:  parse JSON, skip DB entirely
+                → miss: SELECT from PostgreSQL, write to Redis with TTL
+```
+
+The cached value is `{"target_url": "...", "id": 123}`. Both fields are needed: `target_url` for the redirect response, `id` for the click buffer increment. Caching only `target_url` would require a DB round-trip anyway to get the ID.
+
+### Invalidation
+
+The DELETE endpoint calls `redis.delete(f"url:{db_url.key}")` immediately after `service.deactivate()`. This ensures a deactivated URL is never served from cache. The TTL (`URL_CACHE_TTL`, default 300s) is a safety net, not the primary invalidation mechanism.
+
+**Stale-serve window**: there is a tiny gap between `service.deactivate()` (SQL commit) and `redis.delete()` (cache eviction) — on the order of one async round-trip. A request landing in this window would be redirected once to a deactivated URL. This is an acceptable trade-off; eliminating it entirely would require a distributed transaction or a Lua script combining both operations.
+
+### Tradeoffs
+
+| | No cache (old) | Redis cache (current) |
+|---|---|---|
+| Read path | PostgreSQL every redirect | Redis on cache hit (~sub-ms) |
+| Consistency on deactivate | Immediate | Immediate (explicit delete) + TTL fallback |
+| Memory cost | None | ~200 bytes per cached URL |
+| Complexity | None | Cache population + invalidation logic |
+
+The cache is most valuable for hot URLs (viral links, QR codes on physical media) where the same key is resolved thousands of times per minute. For a long tail of rarely-accessed URLs, the cache hit rate approaches zero and the cost is just the extra `GET` per redirect.

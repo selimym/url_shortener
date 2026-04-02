@@ -1,0 +1,28 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: url-shortener
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    spec:
+      containers:
+        - image: europe-west2-docker.pkg.dev/YOUR_PROJECT_ID/url-shortener/app:latest
+          env:
+            - name: ENV_NAME
+              value: "Production"
+            - name: BASE_URL
+              value: "https://YOUR_CLOUD_RUN_URL"
+            - name: DB_URL
+              value: "postgresql+asyncpg://YOUR_NEON_CONNECTION_STRING?sslmode=require"
+            - name: REDIS_URL
+              value: "rediss://YOUR_UPSTASH_CONNECTION_STRING"
+            - name: USE_MIGRATIONS
+              value: "true"
+            - name: RATE_LIMIT_ENABLED
+              value: "true"
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"

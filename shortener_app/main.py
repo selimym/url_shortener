@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 from shortener_app import models, schemas
@@ -11,7 +12,7 @@ import re
 import validators
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import URL
 
@@ -97,7 +98,12 @@ def raise_not_found(request):
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to the URL shortener API"}
+    return FileResponse("static/index.html")
+
+
+@app.get("/manage")
+def admin_panel():
+    return FileResponse("static/admin.html")
 
 
 @app.get("/healthz")
@@ -136,8 +142,19 @@ async def forward_to_target_url(
     ):
     _validate_url_key(url_key)
     await read_rate_limiter.check_rate_limit(request)
+
+    redis = request.app.state.redis
+    cache_key = f"url:{url_key}"
+    cached = await redis.get(cache_key)
+    if cached:
+        data = json.loads(cached)
+        await request.app.state.click_buffer.increment(data["id"])
+        return RedirectResponse(data["target_url"])
+
     db_url = await service.get_by_key(url_key)
     if db_url:
+        await redis.setex(cache_key, get_settings().url_cache_ttl,
+                          json.dumps({"target_url": db_url.target_url, "id": db_url.id}))
         await request.app.state.click_buffer.increment(db_url.id)
         return RedirectResponse(db_url.target_url)
     else:
@@ -168,6 +185,7 @@ async def delete_url(
     _validate_secret_key(secret_key)
     await admin_rate_limiter.check_rate_limit(request, endpoint="/admin")
     if db_url := await service.deactivate(secret_key):
+        await request.app.state.redis.delete(f"url:{db_url.key}")
         message = f"Successfully deleted shortened URL for '{db_url.target_url}'"
         return {"detail": message}
     else:

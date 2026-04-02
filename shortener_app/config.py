@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     rate_limit_admin: int = 10    # admin GET/DELETE requests per minute (brute-force protection)
     use_migrations: bool = False  # True for production, False for tests
     click_flush_interval: int = 30  # seconds between Redis → SQL click flushes
+    url_cache_ttl: int = 300        # seconds to cache URL lookups in Redis
 
 
 @lru_cache

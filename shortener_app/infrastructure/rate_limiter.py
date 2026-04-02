@@ -1,3 +1,5 @@
+import time
+
 from fastapi import HTTPException, Request
 from shortener_app.config import get_settings
 
@@ -18,22 +20,25 @@ class RateLimiter:
         # unlimited brute-force attempts across different secrets).
         redis = request.app.state.redis
         path = endpoint if endpoint is not None else request.url.path
-        key = f"rate_limit:{request.client.host}:{path}"
+        # request.client is None when the ASGI transport omits peer info (e.g. some test
+        # clients). Fall back to "unknown" so the key is still valid rather than crashing.
+        client_host = request.client.host if request.client else "unknown"
+        key = f"rate_limit:{client_host}:{path}"
 
-        # INCR is atomic — the returned count is the authoritative gate.
-        # The old GET → check → SETEX/INCR pattern had two bugs:
-        #   1. Non-atomic: two concurrent requests could both read count=limit-1,
-        #      both pass the check, and both INCR — silently exceeding the limit.
-        #   2. Missing TTL: if the key expired between GET (returned a value)
-        #      and INCR, the INCR created a new key with no expiry, permanently
-        #      rate-limiting the user.
-        count = await redis.incr(key)
-        if count == 1:
-            # New key — set the expiry window. INCR returning 1 means this is
-            # the first request; the key did not exist before this call.
-            # The tiny gap between INCR and EXPIRE (crash = key with no TTL)
-            # is accepted; eliminating it would require a Lua script.
-            await redis.expire(key, self.window_seconds)
+        # Sliding window via sorted set: each request is a member scored by its Unix
+        # timestamp. Entries older than window_seconds are pruned before counting, so
+        # the limit applies to a true rolling window rather than a fixed bucket that
+        # resets on a schedule (which would allow 2× the limit across a reset boundary).
+        now = time.time()
+        async with redis.pipeline() as pipe:
+            # Subtract 1 ns so the boundary entry (exactly window_seconds old) is kept
+            # in the set and counted — making the window truly inclusive on both ends.
+            pipe.zremrangebyscore(key, 0, now - self.window_seconds - 1e-9)
+            pipe.zadd(key, {str(now): now})
+            pipe.zcard(key)
+            pipe.expire(key, self.window_seconds)
+            results = await pipe.execute()
+        count = results[2]
         if count > self.max_requests:
             raise HTTPException(
                 status_code=429,
