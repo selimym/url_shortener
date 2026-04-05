@@ -411,11 +411,15 @@
       if (!res.ok) { showErr(data.detail || 'Something went wrong.'); return; }
 
       const secretKey = data.admin_url.split('/admin/')[1];
+      const shortKey  = data.url.split('/').filter(Boolean).pop();
+      const fullUrl   = window.location.origin + '/' + shortKey;
 
-      document.getElementById('resUrl').textContent    = data.url;
+      document.getElementById('resUrl').textContent    = fullUrl;
       document.getElementById('resTarget').textContent = '↳ ' + url.replace(/^https?:\/\//, '').substring(0, 50) + (url.length > 55 ? '…' : '');
       document.getElementById('resKey').textContent    = secretKey;
       document.getElementById('manageLink').href       = '/manage?key=' + encodeURIComponent(secretKey);
+
+      saveToHistory({ shortUrl: fullUrl, targetUrl: url, key: secretKey });
 
       result.style.display = 'block';
       requestAnimationFrame(() => requestAnimationFrame(() => result.classList.add('show')));
@@ -446,6 +450,17 @@
   }
   makeCopy('copyUrl', () => document.getElementById('resUrl').textContent);
   makeCopy('copyKey', () => document.getElementById('resKey').textContent);
+
+  function saveToHistory({ shortUrl, targetUrl, key }) {
+    const STORAGE_KEY = 'shrt_history';
+    const MAX = 10;
+    let history = [];
+    try { history = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch {}
+    history = history.filter(e => e.key !== key); // deduplicate
+    history.unshift({ shortUrl, targetUrl, key, createdAt: new Date().toISOString() });
+    if (history.length > MAX) history = history.slice(0, MAX);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+  }
 </script>
 </body>
 </html>
