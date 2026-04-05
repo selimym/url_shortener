@@ -101,8 +101,8 @@ gcloud run services replace cloud-run.yaml --region europe-west2
 ## Redeploying after code changes
 
 ```bash
-docker build -t europe-west2-docker.pkg.dev/YOUR_PROJECT_ID/url-shortener/app:latest .
-docker push europe-west2-docker.pkg.dev/YOUR_PROJECT_ID/url-shortener/app:latest
+docker build -t europe-west2-docker.pkg.dev/url-shortener-selim/url-shortener/app:latest .
+docker push europe-west2-docker.pkg.dev/url-shortener-selim/url-shortener/app:latest
 gcloud run services replace cloud-run.yaml --region europe-west2
 ```
 
